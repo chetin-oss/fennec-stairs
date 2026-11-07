@@ -773,7 +773,7 @@ function schedule(){
   setTimeout(schedule,250);
 }
 function startScore(){
-  master=ac.createGain(); master.gain.value=.55; master.connect(ac.destination);
+  master=ac.createGain(); master.gain.value=matchMedia("(pointer: coarse)").matches?.85:.55; master.connect(ac.destination);
   verb=makeVerb(4.5); const vg=ac.createGain(); vg.gain.value=.55; verb.connect(vg).connect(master);
   // wind: filtered noise with slow swell
   const buf=ac.createBuffer(1,ac.sampleRate*4,ac.sampleRate),d=buf.getChannelData(0);
@@ -793,6 +793,11 @@ function startScore(){
     o.connect(g).connect(lp); o.start();
   });
   lp.connect(droneGain); droneGain.connect(master); droneGain.connect(verb);
+  // the same dissonance an octave and two up, so small phone speakers (which drop deep bass) still carry it
+  [[hz(-12),.022],[hz(-11)*1.003,.016],[hz(0),.008]].forEach(([f,a])=>{
+    const o=ac.createOscillator(); o.type="triangle"; o.frequency.value=f; const g=ac.createGain(); g.gain.value=a;
+    o.connect(g).connect(droneGain); o.start();
+  });
   setTension(lastStep<0?0:lastStep);
   schedule();
 }
@@ -800,16 +805,44 @@ function setTension(step){
   if(!droneGain) return;
   droneGain.gain.setTargetAtTime(.25+.9*(step/STEPS),ac.currentTime,1.5);
 }
+// Phones only let sound start inside a tap, and iPhones also follow the silent switch for web audio.
+// A looping silent <audio> track moves the page into "media playback", which plays even on silent;
+// every later tap re-wakes the audio after a call, an alarm or switching apps.
+let soundOn=false, keepAlive=null;
+function silentWav(){
+  const n=8000, b=new Uint8Array(44+n), v=new DataView(b.buffer), w=(o,s)=>[...s].forEach((c,i)=>b[o+i]=c.charCodeAt(0));
+  w(0,"RIFF"); v.setUint32(4,36+n,true); w(8,"WAVEfmt "); v.setUint32(16,16,true); v.setUint16(20,1,true); v.setUint16(22,1,true);
+  v.setUint32(24,8000,true); v.setUint32(28,8000,true); v.setUint16(32,1,true); v.setUint16(34,8,true); w(36,"data"); v.setUint32(40,n,true);
+  b.fill(128,44); let s=""; for(const x of b) s+=String.fromCharCode(x); return "data:audio/wav;base64,"+btoa(s);
+}
+function wakeAudio(){
+  if(!ac) return;
+  try{ if(navigator.audioSession) navigator.audioSession.type="playback"; }catch(e){}
+  if(!keepAlive){ keepAlive=new Audio(silentWav()); keepAlive.loop=true; keepAlive.setAttribute("playsinline",""); }
+  const p=keepAlive.play(); if(p&&p.catch) p.catch(()=>{});
+  // a one-sample buffer played inside the tap unlocks older iOS WebKit
+  try{ const b=ac.createBuffer(1,1,22050), s=ac.createBufferSource(); s.buffer=b; s.connect(ac.destination); s.start(0); }catch(e){}
+  if(ac.state!=="running") ac.resume().catch(()=>{});
+}
+function setSoundLabel(){ $("#soundBtn").textContent=soundOn?"소리 끄기":"소리 켜기"; }
 $("#soundBtn").addEventListener("click",()=>{
   if(!ac){
-    try{ac=new (window.AudioContext||window.webkitAudioContext)();}catch(e){return;}
-    startScore(); $("#soundBtn").textContent="소리 끄기"; return;
+    try{ac=new (window.AudioContext||window.webkitAudioContext)();}catch(e){$("#soundBtn").textContent="소리 없음";return;}
+    soundOn=true; wakeAudio(); startScore(); setSoundLabel(); return;
   }
-  if(ac.state==="running"){ac.suspend();$("#soundBtn").textContent="소리 켜기";}
-  else{ac.resume();$("#soundBtn").textContent="소리 끄기";}
+  soundOn=!soundOn;
+  if(soundOn) wakeAudio(); else { ac.suspend().catch(()=>{}); if(keepAlive) keepAlive.pause(); }
+  setSoundLabel();
+});
+addEventListener("pointerdown",()=>{ if(soundOn&&ac&&ac.state!=="running") wakeAudio(); },true);
+addEventListener("touchend",()=>{ if(soundOn&&ac&&ac.state!=="running") wakeAudio(); },true);
+document.addEventListener("visibilitychange",()=>{
+  if(!ac||!soundOn) return;
+  if(document.hidden){ ac.suspend().catch(()=>{}); }
+  else ac.resume().catch(()=>{});      // if the phone still refuses, the next tap wakes it
 });
 function grabSound(heavy){
-  if(!ac||ac.state!=="running") return;
+  if(!ac||!soundOn||ac.state!=="running") return;
   const t=ac.currentTime;
   const o=ac.createOscillator(); o.type="sine"; o.frequency.setValueAtTime(heavy?70:110,t); o.frequency.exponentialRampToValueAtTime(35,t+.5);
   const g=ac.createGain(); g.gain.setValueAtTime(.6,t); g.gain.exponentialRampToValueAtTime(.0001,t+.6); o.connect(g).connect(master); o.start(t); o.stop(t+.65);
@@ -820,7 +853,7 @@ function grabSound(heavy){
   const sg=ac.createGain(); sg.gain.value=.35; s.connect(f).connect(sg).connect(master); sg.connect(verb); s.start(t);
 }
 function knock(){
-  if(!ac||ac.state!=="running") return;
+  if(!ac||!soundOn||ac.state!=="running") return;
   const t=ac.currentTime, len=ac.sampleRate*.08, b=ac.createBuffer(1,len,ac.sampleRate), d=b.getChannelData(0);
   for(let i=0;i<len;i++) d[i]=(Math.random()*2-1)*Math.pow(1-i/len,4);
   const s=ac.createBufferSource(); s.buffer=b;
@@ -828,14 +861,14 @@ function knock(){
   const g=ac.createGain(); g.gain.value=.5; s.connect(f).connect(g).connect(master); s.start(t);
 }
 function burnSound(){
-  if(!ac||ac.state!=="running") return;
+  if(!ac||!soundOn||ac.state!=="running") return;
   const t=ac.currentTime, len=ac.sampleRate*2.6, b=ac.createBuffer(1,len,ac.sampleRate), d=b.getChannelData(0);
   for(let i=0;i<len;i++) d[i]=(Math.random()<.004?(Math.random()*2-1):0)+(Math.random()*2-1)*.08*Math.sin(Math.PI*i/len);
   const s=ac.createBufferSource(); s.buffer=b; const f=ac.createBiquadFilter(); f.type="highpass"; f.frequency.value=900;
   const g=ac.createGain(); g.gain.value=.35; s.connect(f).connect(g).connect(master); s.start(t);
 }
 function whisper(){
-  if(!ac||ac.state!=="running") return;
+  if(!ac||!soundOn||ac.state!=="running") return;
   const t=ac.currentTime;
   boxQuietUntil=performance.now()+7000;           // the music box stops dead when the fox is called
   const buf=ac.createBuffer(1,ac.sampleRate*2,ac.sampleRate),d=buf.getChannelData(0);
