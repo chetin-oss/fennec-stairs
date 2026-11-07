@@ -711,13 +711,52 @@ $("#listBtn").addEventListener("click",()=>{const d=$("#drawer");d.hidden=!d.hid
 
 /* ---------- reading a strip ---------- */
 const ray=new THREE.Raycaster(), ptr=new THREE.Vector2(); const readEl=$("#read"); let readUntil=0,readTarget=null;
-renderer.domElement.addEventListener("pointerdown",e=>{
-  ptr.set(e.clientX/innerWidth*2-1,-(e.clientY/innerHeight)*2+1);
+function readAt(cx,cy){
+  ptr.set(cx/innerWidth*2-1,-(cy/innerHeight)*2+1);
   ray.setFromCamera(ptr,camera);
   const hit=ray.intersectObjects(strips,false)[0];
   if(hit){readTarget=hit.object;readEl.textContent=hit.object.userData.wish.text;readEl.hidden=false;readUntil=performance.now()+4500;}
   else readEl.hidden=true;
+}
+
+/* ---------- camera: drag to orbit, wheel or pinch to zoom ---------- */
+const CAM0={yaw:0,pitch:.46,dist:4.9};
+const cam={yaw:CAM0.yaw,pitch:CAM0.pitch,dist:CAM0.dist,dragging:false};
+const camPtrs=new Map(); let pinch0=0, dist0=0, tapStart=null;
+const cv=renderer.domElement;
+cv.addEventListener("pointerdown",e=>{
+  cv.setPointerCapture(e.pointerId);
+  camPtrs.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  if(camPtrs.size===1) tapStart={x:e.clientX,y:e.clientY,t:performance.now()};
+  if(camPtrs.size===2){ const [a,b]=[...camPtrs.values()]; pinch0=Math.hypot(a.x-b.x,a.y-b.y); dist0=cam.dist; tapStart=null; }
 });
+cv.addEventListener("pointermove",e=>{
+  const prev=camPtrs.get(e.pointerId); if(!prev) return;
+  const dx=e.clientX-prev.x, dy=e.clientY-prev.y;
+  prev.x=e.clientX; prev.y=e.clientY;
+  if(camPtrs.size===1){
+    if(tapStart&&Math.hypot(e.clientX-tapStart.x,e.clientY-tapStart.y)>6) tapStart=null;
+    if(!tapStart){
+      cam.dragging=true;
+      const k=e.pointerType==="touch"?.009:.006;
+      cam.yaw-=dx*k;
+      cam.pitch=Math.max(.08,Math.min(1.25,cam.pitch+dy*k));
+    }
+  } else if(camPtrs.size===2&&pinch0>0){
+    const [a,b]=[...camPtrs.values()];
+    cam.dist=Math.max(2.2,Math.min(10,dist0*pinch0/Math.max(20,Math.hypot(a.x-b.x,a.y-b.y))));
+  }
+});
+function endPtr(e){
+  if(!camPtrs.has(e.pointerId)) return;
+  camPtrs.delete(e.pointerId);
+  if(tapStart&&camPtrs.size===0&&performance.now()-tapStart.t<450) readAt(e.clientX,e.clientY);   // a tap reads a paper
+  if(camPtrs.size<2) pinch0=0;
+  if(camPtrs.size===0){cam.dragging=false;tapStart=null;}
+}
+cv.addEventListener("pointerup",endPtr); cv.addEventListener("pointercancel",endPtr);
+cv.addEventListener("wheel",e=>{e.preventDefault();cam.dist=Math.max(2.2,Math.min(10,cam.dist*Math.exp(e.deltaY*.0012)));},{passive:false});
+$("#camReset").addEventListener("click",()=>{cam.yaw=CAM0.yaw;cam.pitch=CAM0.pitch;cam.dist=CAM0.dist;});
 
 /* ---------- score: broken music box, dissonant drone, distant bell (built on demand) ---------- */
 let ac=null,master=null,verb=null,droneGain=null,boxQuietUntil=0,nextNote=0,phraseIdx=0,noteIdx=0,nextBell=0;
@@ -901,7 +940,10 @@ function tick(){
   if(mag>.05){
     moved=true;
     if(myAct.type==='sit'){myAct={type:null,at:Date.now()};actsEl.querySelector('[data-act="sit"]').setAttribute('aria-pressed','false');sendPresence(true);}
-    const sp=2.6*mag; const nx=mx/Math.hypot(mx,mz), nz=mz/Math.hypot(mx,mz);
+    // input is relative to where the camera looks
+    const cy=Math.cos(cam.yaw), sy=Math.sin(cam.yaw);
+    const wx=mx*cy+mz*sy, wz=-mx*sy+mz*cy, wl=Math.hypot(wx,wz)||1;
+    const sp=2.6*mag; const nx=wx/wl, nz=wz/wl;
     let x=player.position.x+nx*sp*dt, z=player.position.z+nz*sp*dt;
     const onStairs=z<0.2&&z>TOP_Z;
     const half=onStairs?WIDTH/2-.25:(z<=TOP_Z?6:6);
@@ -930,11 +972,13 @@ function tick(){
   hint.hidden=moved&&!atTop ? (st>3) : atTop;
 
   // camera follow
-  camTarget.set(player.position.x*.6, player.position.y+2.2, player.position.z+4.4);
-  if(atTop) camTarget.set(player.position.x*.4, player.position.y+2.0, player.position.z+3.6);
-  camera.position.lerp(camTarget,Math.min(1,dt*3));
+  const cd=cam.dist*(atTop?.85:1), cp=Math.cos(cam.pitch);
+  camTarget.set(player.position.x+Math.sin(cam.yaw)*cp*cd, player.position.y+.9+Math.sin(cam.pitch)*cd, player.position.z+Math.cos(cam.yaw)*cp*cd);
+  camTarget.y=Math.max(camTarget.y,groundY(camTarget.x,camTarget.z)+.45);   // never dip under the steps
+  camera.position.lerp(camTarget,Math.min(1,dt*(cam.dragging?12:4)));
   if(grab&&grab.phase!=="free"&&!reduce){camera.position.x+=(Math.random()-.5)*.03;camera.position.y+=(Math.random()-.5)*.03;}
-  tmp.set(player.position.x,player.position.y+1.1,player.position.z-(atTop?2.2:1.2));
+  const ahead=(atTop?2.2:1.2)*Math.min(1,cam.dist/4.9);
+  tmp.set(player.position.x-Math.sin(cam.yaw)*ahead,player.position.y+1.1,player.position.z-Math.cos(cam.yaw)*ahead);
   camera.lookAt(tmp);
   carry.position.set(player.position.x,player.position.y+1.8,player.position.z+.6);
 

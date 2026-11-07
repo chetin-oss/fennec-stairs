@@ -34,6 +34,8 @@ body{background:var(--ink);color:var(--paper);font-family:var(--f-body);overflow
 .tr{top:calc(14px + env(safe-area-inset-top,0px));right:max(16px,env(safe-area-inset-right,0px));display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
 .brand{font-family:var(--f-display);font-size:30px;letter-spacing:.12em;line-height:1;color:var(--paper);
   text-shadow:0 0 18px rgba(176,58,34,.55)}
+.icon-btn{display:inline-grid;place-items:center;padding:7px 9px}
+.icon-btn svg{width:18px;height:18px}
 .count{font-size:13px;letter-spacing:.08em;color:var(--paper-dim);font-variant-numeric:tabular-nums}
 .count b{color:var(--paper);font-weight:400;font-size:17px}
 .count.at-top b{color:var(--eye)}
