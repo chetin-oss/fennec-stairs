@@ -19,7 +19,9 @@ html,body{height:100%}
 body{background:var(--ink);color:var(--paper);font-family:var(--f-body);overflow:hidden;
   padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
 #stage{position:fixed;inset:0;background:var(--ink)}
-#stage canvas{display:block;width:100%;height:100%;touch-action:none}
+#stage{touch-action:none;overscroll-behavior:none}
+#stage canvas{display:block;width:100%;height:100%;touch-action:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+html,body{overscroll-behavior:none}
 .vignette{position:fixed;inset:0;pointer-events:none;
   background:radial-gradient(ellipse at 50% 45%,transparent 35%,rgba(0,0,0,.55) 80%,rgba(0,0,0,.85));}
 .grain{position:fixed;inset:-50%;pointer-events:none;opacity:.07;mix-blend-mode:screen;

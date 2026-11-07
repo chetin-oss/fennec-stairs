@@ -724,8 +724,11 @@ const CAM0={yaw:0,pitch:.46,dist:4.9};
 const cam={yaw:CAM0.yaw,pitch:CAM0.pitch,dist:CAM0.dist,dragging:false};
 const camPtrs=new Map(); let pinch0=0, dist0=0, tapStart=null;
 const cv=renderer.domElement;
+// Touch runs through touch events (below) so the page can claim the gesture before the phone
+// or the app around the page turns it into a scroll or swipe; pointer events handle mouse and pen.
 cv.addEventListener("pointerdown",e=>{
-  cv.setPointerCapture(e.pointerId);
+  if(e.pointerType==="touch") return;
+  try{cv.setPointerCapture(e.pointerId);}catch(_){}
   camPtrs.set(e.pointerId,{x:e.clientX,y:e.clientY});
   if(camPtrs.size===1) tapStart={x:e.clientX,y:e.clientY,t:performance.now()};
   if(camPtrs.size===2){ const [a,b]=[...camPtrs.values()]; pinch0=Math.hypot(a.x-b.x,a.y-b.y); dist0=cam.dist; tapStart=null; }
@@ -755,6 +758,38 @@ function endPtr(e){
   if(camPtrs.size===0){cam.dragging=false;tapStart=null;}
 }
 cv.addEventListener("pointerup",endPtr); cv.addEventListener("pointercancel",endPtr);
+function touchList(e){ return [...e.touches].map(t=>({id:"t"+t.identifier,x:t.clientX,y:t.clientY})); }
+cv.addEventListener("touchstart",e=>{
+  e.preventDefault();
+  for(const t of e.changedTouches) camPtrs.set("t"+t.identifier,{x:t.clientX,y:t.clientY});
+  if(camPtrs.size===1){ const t=e.changedTouches[0]; tapStart={x:t.clientX,y:t.clientY,t:performance.now()}; }
+  if(camPtrs.size>=2){ const [a,b]=[...camPtrs.values()]; pinch0=Math.hypot(a.x-b.x,a.y-b.y); dist0=cam.dist; tapStart=null; }
+},{passive:false});
+cv.addEventListener("touchmove",e=>{
+  e.preventDefault();
+  if(camPtrs.size===1){
+    const t=e.changedTouches[0], prev=camPtrs.get("t"+t.identifier); if(!prev) return;
+    const dx=t.clientX-prev.x, dy=t.clientY-prev.y; prev.x=t.clientX; prev.y=t.clientY;
+    if(tapStart&&Math.hypot(t.clientX-tapStart.x,t.clientY-tapStart.y)>8) tapStart=null;
+    if(!tapStart){ cam.dragging=true; cam.yaw-=dx*.009; cam.pitch=Math.max(.08,Math.min(1.25,cam.pitch+dy*.009)); }
+  } else {
+    for(const t of e.changedTouches){ const p=camPtrs.get("t"+t.identifier); if(p){p.x=t.clientX;p.y=t.clientY;} }
+    if(camPtrs.size>=2&&pinch0>0){ const [a,b]=[...camPtrs.values()];
+      cam.dist=Math.max(2.2,Math.min(10,dist0*pinch0/Math.max(20,Math.hypot(a.x-b.x,a.y-b.y)))); }
+  }
+},{passive:false});
+function touchEnd(e){
+  e.preventDefault();
+  for(const t of e.changedTouches){
+    if(!camPtrs.has("t"+t.identifier)) continue;
+    camPtrs.delete("t"+t.identifier);
+    if(e.type==="touchend"&&tapStart&&camPtrs.size===0&&performance.now()-tapStart.t<450) readAt(t.clientX,t.clientY);
+  }
+  if(camPtrs.size<2) pinch0=0;
+  if(camPtrs.size===1){ const [p]=camPtrs.values(); tapStart=null; }   // one finger left after a pinch keeps orbiting
+  if(camPtrs.size===0){ cam.dragging=false; tapStart=null; }
+}
+cv.addEventListener("touchend",touchEnd,{passive:false}); cv.addEventListener("touchcancel",touchEnd,{passive:false});
 cv.addEventListener("wheel",e=>{e.preventDefault();cam.dist=Math.max(2.2,Math.min(10,cam.dist*Math.exp(e.deltaY*.0012)));},{passive:false});
 $("#camReset").addEventListener("click",()=>{cam.yaw=CAM0.yaw;cam.pitch=CAM0.pitch;cam.dist=CAM0.dist;});
 
