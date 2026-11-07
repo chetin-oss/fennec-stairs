@@ -643,7 +643,7 @@ async function connect(){
   const {data,error}=await sb.from("wishes").select("id,text,created_at").gte("created_at",since)
     .order("created_at",{ascending:false}).limit(slots.length);
   clearTimeout(timer);
-  if(error){mode="local";loadLocal();return;}
+  if(error){mode="slow";renderList();setTimeout(connect,15000);return;}   // try again rather than going local
   mode="shared"; wishes=(data||[]).map(toWish); rebuildStrips();
   sb.channel("fox-stairs-wishes")
     .on("postgres_changes",{event:"INSERT",schema:"public",table:"wishes"},({new:row})=>{
@@ -659,6 +659,7 @@ setTimeout(connect,0);
 
 async function hangWish(text){
   if(wishes.filter(w=>w.mine&&!w.burning&&alive(w)).length>=5) throw new Error("limit");
+  if(sb&&mode!=="shared") throw new Error("offline");     // configured but not connected: don't fake it locally
   if(mode!=="shared"){
     const ts=Date.now();
     wishes.push({text,ts,key:"l"+ts,mine:true,fresh:true}); saveLocal(); rebuildStrips(); return;
@@ -700,10 +701,8 @@ $("#wishForm").addEventListener("submit",async e=>{
     bubbleText="종이를 가지에 매달았어요"; bubbleUntil=performance.now()+2600;
   }catch(ex){
     if(ex&&ex.message==="limit") err.textContent="이미 소원을 다섯 개 걸었어요. 사막여우는 욕심 많은 사람을 싫어한대요.";
-    else { // refused write: roll back the optimistic strip
-      wishes=wishes.filter(w=>!(w.fresh&&w.text===text)); rebuildStrips();
-      err.textContent="소원을 걸지 못했어요. 인터넷 연결을 확인하고 다시 눌러 주세요.";
-    }
+    else if(ex&&ex.message==="offline") err.textContent="아직 고목과 연결되지 않았어요. 잠시 뒤 다시 눌러 주세요. 소원은 그대로 남아 있어요.";
+    else err.textContent="소원을 걸지 못했어요. 인터넷 연결을 확인하고 다시 눌러 주세요.";
     err.hidden=false; $("#hangBtn").disabled=false;
   }
 });
