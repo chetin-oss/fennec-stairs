@@ -96,43 +96,49 @@ for(let i=0;i<46;i++){
   deadTree(x,z,Math.max(0,y-.2),1);
 }
 
-/* ---------- the wishing tree (slots for paper) ---------- */
-const slots=[];
-(function wishTree(){
-  const root=new THREE.Group(); root.position.set(0,TOP_Y,TREE_Z); scene.add(root);
-  const trunkH=3.4;
-  const trunk=new THREE.Mesh(new THREE.CylinderGeometry(.28,.55,trunkH,7),bark);
+/* ---------- wishing trees (slots for paper) ---------- */
+// The old tree fills first; once its branches are full, papers spill onto the dead trees around it.
+const slots=[], wishTrees=[];
+function growTree(x,y,z,sc,seed0,main){
+  const start=slots.length, own=[];
+  const root=new THREE.Group(); root.position.set(x,y,z); root.rotation.y=seed0; scene.add(root);
+  const trunkH=3.4*sc;
+  const trunk=new THREE.Mesh(new THREE.CylinderGeometry(.28*sc,.55*sc,trunkH,7),bark);
   trunk.position.y=trunkH/2; root.add(trunk);
-  // rope (geumjul) around trunk
-  const rope=new THREE.Mesh(new THREE.TorusGeometry(.5,.035,6,24),M(0x8c8064));
-  rope.rotation.x=Math.PI/2; rope.position.y=1.1; root.add(rope);
-  let seed=7; const rnd=()=>{seed=(seed*16807)%2147483647;return seed/2147483647;};
+  // rope (geumjul) around the trunk: the old tree always wears one, the others once they carry a wish
+  const rope=new THREE.Mesh(new THREE.TorusGeometry(.5*sc,.035,6,24),M(0x8c8064));
+  rope.rotation.x=Math.PI/2; rope.position.y=1.1*sc; root.add(rope); rope.visible=!!main;
+  let seed=seed0*1000+7|0; const rnd=()=>{seed=(seed*16807)%2147483647;return seed/2147483647;};
   const v=new THREE.Vector3();
   function grow(parent,len,rad,depth,ang){
     const geo=new THREE.CylinderGeometry(rad*.55,rad,len,5); geo.translate(0,len/2,0);
-    const b=new THREE.Mesh(geo,bark); parent.add(b);
-    b.rotation.set(ang.x,ang.y,ang.z);
-    b.updateMatrixWorld(true);
+    const br=new THREE.Mesh(geo,bark); parent.add(br);
+    br.rotation.set(ang.x,ang.y,ang.z);
+    br.updateMatrixWorld(true);
     if(depth>=1){
-      for(let t=.35;t<=.95;t+=.2){
-        v.set(0,len*t,0); b.localToWorld(v); slots.push(v.clone());
-      }
+      for(let t=.35;t<=.95;t+=.2){ v.set(0,len*t,0); br.localToWorld(v); own.push(v.clone()); }
     }
     if(depth<3){
-      const n=depth===0?5:2+Math.round(rnd());
+      const n=depth===0?(main?5:4):2+Math.round(rnd());
       for(let i=0;i<n;i++){
-        const child=new THREE.Group(); child.position.y=len*(.55+rnd()*.4); b.add(child); child.updateMatrixWorld(true);
-        grow(child,len*(.55+rnd()*.2),rad*.55,depth+1,
-          {x:(rnd()-.5)*.6,y:i/n*Math.PI*2+rnd(),z:.6+rnd()*.6});
+        const child=new THREE.Group(); child.position.y=len*(.55+rnd()*.4); br.add(child); child.updateMatrixWorld(true);
+        grow(child,len*(.55+rnd()*.2),rad*.55,depth+1,{x:(rnd()-.5)*.6,y:i/n*Math.PI*2+rnd(),z:.6+rnd()*.6});
       }
     }
   }
   const crown=new THREE.Group(); crown.position.y=trunkH*.85; root.add(crown);
   root.updateMatrixWorld(true);
-  grow(crown,1.6,.22,0,{x:0,y:0,z:0});
-  // deterministic shuffle so neighbouring wishes spread over the crown
-  for(let i=slots.length-1;i>0;i--){const j=Math.floor(rnd()*(i+1));[slots[i],slots[j]]=[slots[j],slots[i]];}
-})();
+  grow(crown,1.6*sc,.22*sc,0,{x:0,y:0,z:0});
+  for(let i=own.length-1;i>0;i--){const j=Math.floor(rnd()*(i+1));[own[i],own[j]]=[own[j],own[i]];}
+  slots.push(...own);
+  wishTrees.push({start,end:slots.length,rope,main:!!main});
+}
+function moundY(z){ const i=Math.round((-z-1)/2.4); return Math.max(.2,((i*2.4+1)/(-TOP_Z))*TOP_Y)-.15; }
+growTree(0,TOP_Y,TREE_Z,1,0,true);
+[[4.4,TOP_Z-5.2,.8],[-4.2,TOP_Z-4.5,.75],[3.8,TOP_Z-9.8,.7],[-3.6,TOP_Z-9.5,.72]]
+  .forEach(([x,z,sc],i)=>growTree(x,TOP_Y,z,sc,i+1.3,false));
+[[ 1,-19.5,.62],[-1,-15.5,.6],[ 1,-11,.58],[-1,-6,.56]]
+  .forEach(([side,z,sc],i)=>growTree(side*(WIDTH/2+2.3),moundY(z),z,sc,i+5.7,false));
 
 /* ---------- fennec fox statues ---------- */
 const foxEyes=[];
@@ -508,8 +514,8 @@ let db=null,me=null,myDocItems=[],mode="loading";
 const LOCAL_KEY="fox-stairs-wishes";
 
 function paperTexture(text){
-  const c=document.createElement("canvas"); c.width=96; c.height=384;
-  const x=c.getContext("2d");
+  const c=document.createElement("canvas"); c.width=64; c.height=256;   // small: the forest may hold over a thousand
+  const x=c.getContext("2d"); x.scale(64/96,256/384);
   x.fillStyle="#e3dac2"; x.fillRect(0,0,96,384);
   // aged edges
   const gr=x.createLinearGradient(0,0,96,0); gr.addColorStop(0,"rgba(80,50,20,.25)");gr.addColorStop(.15,"rgba(0,0,0,0)");gr.addColorStop(.85,"rgba(0,0,0,0)");gr.addColorStop(1,"rgba(80,50,20,.25)");
@@ -524,23 +530,80 @@ function paperTexture(text){
 }
 const stripGeo=new THREE.PlaneGeometry(.16,.64); stripGeo.translate(0,-.36,0);
 const threadMat=new THREE.LineBasicMaterial({color:0x9a8e70});
+const LIFE_DAYS=49, LIFE_MS=LIFE_DAYS*86400000;     // a paper burns forty-nine days after it is hung
+const alive=w=>Date.now()-w.ts<LIFE_MS;
+const slotOf=new Map(), stripOf=new Map();
+let hiddenCount=0;
+function disposeStrip(g){ g.traverse(o=>{ if(o.material){ if(o.material.map) o.material.map.dispose(); if(o.material!==threadMat) o.material.dispose(); } }); stripGroup.remove(g); }
 function rebuildStrips(){
-  stripGroup.clear(); strips=[];
-  const sorted=wishes.slice().sort((a,b)=>a.ts-b.ts);
-  sorted.forEach((w,i)=>{
-    const p=slots[i%slots.length];
-    const g=new THREE.Group(); g.position.copy(p);
-    if(i>=slots.length){g.position.x+=((i/slots.length|0)%2?.12:-.12); g.position.y-=.05;}
-    const mat=new THREE.MeshStandardMaterial({map:paperTexture(w.text),side:THREE.DoubleSide,roughness:1,
-      emissive:0x3a3428,emissiveIntensity:.5});
+  wishes=wishes.filter(w=>w.burning||alive(w));
+  // the tree holds as many papers as it has slots; the newest stay, the rest wait in the list
+  const byNew=wishes.slice().sort((a,b)=>b.ts-a.ts);
+  const shown=byNew.slice(0,slots.length); hiddenCount=byNew.length-shown.length;
+  const keys=new Set(shown.map(w=>w.key));
+  for(const [k,g] of stripOf) if(!keys.has(k)){ disposeStrip(g); stripOf.delete(k); slotOf.delete(k); }
+  const used=new Set(slotOf.values());
+  let free=0;
+  shown.slice().reverse().forEach(w=>{          // oldest first, so the old tree fills before the others
+    if(stripOf.has(w.key)){ const g=stripOf.get(w.key); g.children[0].userData.wish=w; if(w.fresh){g.userData.fresh=1;w.fresh=false;} return; }
+    while(used.has(free)) free++;
+    const slot=free; used.add(slot); slotOf.set(w.key,slot);
+    const g=new THREE.Group(); g.position.copy(slots[slot]);
+    const mat=new THREE.MeshStandardMaterial({map:paperTexture(w.text),side:THREE.DoubleSide,roughness:1,emissive:0x3a3428,emissiveIntensity:.5});
     const m=new THREE.Mesh(stripGeo,mat); m.userData.wish=w;
-    const line=new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0),new THREE.Vector3(0,-.05,0)]),threadMat);
-    g.add(m,line); g.rotation.y=Math.random()*Math.PI*2;
-    g.userData={phase:Math.random()*10,fresh:w.fresh?1:0}; w.fresh=false;
-    stripGroup.add(g); strips.push(m);
+    g.add(m); g.rotation.y=Math.random()*Math.PI*2;
+    g.userData={phase:Math.random()*10,fresh:w.fresh?1:0,burn:0,key:w.key}; w.fresh=false;
+    stripGroup.add(g); stripOf.set(w.key,g);
   });
-  $("#wishN").textContent=wishes.length;
+  strips=[...stripOf.values()].map(g=>g.children[0]);
+  // a tree puts on its rope once it carries its first paper
+  wishTrees.forEach(t=>{ if(t.main) return; let has=false; for(const v of slotOf.values()) if(v>=t.start&&v<t.end){has=true;break;} t.rope.visible=has; });
+  ageStrips();
+  $("#wishN").textContent=wishes.filter(w=>!w.burning).length;
   renderList();
+}
+// papers in their last three days scorch at the edges; at forty-nine days they catch fire
+const scorch=new THREE.Color(0xa8784a), whiteC=new THREE.Color(0xffffff);
+function ageStrips(){
+  const now=Date.now();
+  for(const g of stripOf.values()){
+    const m=g.children[0], w=m.userData.wish; if(!w||g.userData.burn>0) continue;
+    const left=LIFE_MS-(now-w.ts);
+    if(left<=0){ g.userData.burn=.0001; w.burning=true; burnSound(); $("#wishN").textContent=wishes.filter(x=>!x.burning).length; continue; }
+    const k=Math.max(0,Math.min(1,1-left/(3*86400000)));
+    m.material.color.copy(whiteC).lerp(scorch,k);
+    m.material.emissive.setHex(k>0?0x5a2a10:0x3a3428);
+  }
+}
+setInterval(ageStrips,15000);
+// embers rising from burning paper
+const EMB=240, embPos=new Float32Array(EMB*3), embVel=new Float32Array(EMB*3), embLife=new Float32Array(EMB);
+for(let i=0;i<EMB;i++) embPos[i*3+1]=-99;
+const embGeo=new THREE.BufferGeometry(); embGeo.setAttribute("position",new THREE.BufferAttribute(embPos,3));
+const embers=new THREE.Points(embGeo,new THREE.PointsMaterial({color:0xff7a2a,size:.06,transparent:true,opacity:.95,blending:THREE.AdditiveBlending,depthWrite:false,fog:false}));
+scene.add(embers); let embNext=0;
+function spawnEmber(p){ const i=embNext; embNext=(embNext+1)%EMB;
+  embPos[i*3]=p.x+(Math.random()-.5)*.08; embPos[i*3+1]=p.y; embPos[i*3+2]=p.z+(Math.random()-.5)*.08;
+  embVel[i*3]=(Math.random()-.5)*.3; embVel[i*3+1]=.5+Math.random()*.7; embVel[i*3+2]=(Math.random()-.5)*.3; embLife[i]=1.4+Math.random(); }
+const emberAt=new THREE.Vector3();
+function tickBurning(dt,t){
+  let finished=false;
+  for(const g of stripOf.values()){
+    const u=g.userData; if(!(u.burn>0)) continue;
+    u.burn=Math.min(1,u.burn+dt/2.8);
+    const m=g.children[0];
+    g.scale.y=Math.max(.001,1-u.burn);                       // burns from the bottom edge up to the knot
+    m.material.emissive.setHex(0xff5a18); m.material.emissiveIntensity=1.6*(1-u.burn)+.2*Math.sin(t*30);
+    m.material.color.setRGB(.35*(1-u.burn),.25*(1-u.burn),.2*(1-u.burn));
+    emberAt.set(0,-.04-.68*(1-u.burn),0); m.localToWorld(emberAt);
+    if(Math.random()<.7) spawnEmber(emberAt);
+    if(u.burn>=1){ wishes=wishes.filter(w=>w.key!==u.key); finished=true; }
+  }
+  for(let i=0;i<EMB;i++){ if(embLife[i]<=0) continue; embLife[i]-=dt;
+    embPos[i*3]+=embVel[i*3]*dt; embPos[i*3+1]+=embVel[i*3+1]*dt; embPos[i*3+2]+=embVel[i*3+2]*dt;
+    if(embLife[i]<=0) embPos[i*3+1]=-99; }
+  embGeo.attributes.position.needsUpdate=true;
+  if(finished){ if(mode!=="shared") saveLocal(); rebuildStrips(); }
 }
 function ago(ts){
   const s=(Date.now()-ts)/1000;
@@ -549,9 +612,9 @@ function ago(ts){
 }
 function renderList(){
   const ol=$("#wishList"); ol.textContent="";
-  const sorted=wishes.slice().sort((a,b)=>b.ts-a.ts);
+  const sorted=wishes.filter(w=>!w.burning).sort((a,b)=>b.ts-a.ts);
   for(const w of sorted){const li=document.createElement("li");li.textContent=w.text;
-    const sm=document.createElement("small");sm.textContent=ago(w.ts)+(w.mine?" · 내 소원":"");li.appendChild(sm);ol.appendChild(li);}
+    const sm=document.createElement("small");const left=Math.max(0,Math.ceil((LIFE_MS-(Date.now()-w.ts))/86400000));sm.textContent=ago(w.ts)+" · "+(left<=1?"오늘 밤 불씨가 돼요":left+"일 뒤 불씨")+(w.mine?" · 내 소원":"");li.appendChild(sm);ol.appendChild(li);}
   const md=$("#mode");
   const msgs={
     loading:"고목에 걸린 종이를 불러오는 중이에요.",
@@ -559,10 +622,10 @@ function renderList(){
     local:"온라인 저장소가 연결되지 않아 소원이 이 브라우저에만 남아요.",
     slow:"소원을 아직 불러오지 못했어요. 연결이 느릴 수 있어요.",
   };
-  md.textContent=(wishes.length?"":"아직 아무도 소원을 걸지 않았어요. 계단 끝까지 올라 첫 번째 종이를 매달아 보세요. ")+(msgs[mode]||"");
+  md.textContent=(wishes.length?"":"아직 아무도 소원을 걸지 않았어요. 계단 끝까지 올라 첫 번째 종이를 매달아 보세요. ")+(msgs[mode]||"")+" 종이는 걸린 지 "+LIFE_DAYS+"일이 지나면 불씨가 되어 사라져요."+(hiddenCount>0?" 나무가 모두 차서 오래된 "+hiddenCount+"개는 목록에만 있어요.":"");
 }
 function loadLocal(){
-  try{const a=JSON.parse(localStorage.getItem(LOCAL_KEY)||"[]");wishes=a.map(w=>({...w,mine:true}));}catch(e){wishes=[];}
+  try{const a=JSON.parse(localStorage.getItem(LOCAL_KEY)||"[]");wishes=a.map(w=>({...w,mine:true,key:w.key||"l"+w.ts})).filter(alive);}catch(e){wishes=[];}
   rebuildStrips();
 }
 function saveLocal(){
@@ -575,7 +638,10 @@ function toWish(row){return {text:String(row.text||"").slice(0,60),ts:Date.parse
 async function connect(){
   if(!sb){mode="local";loadLocal();return;}
   const timer=setTimeout(()=>{if(mode==="loading"){mode="slow";renderList();}},10000);
-  const {data,error}=await sb.from("wishes").select("id,text,created_at").order("created_at",{ascending:true}).limit(1000);
+  // only papers still hanging (younger than 49 days), newest first
+  const since=new Date(Date.now()-LIFE_MS).toISOString();
+  const {data,error}=await sb.from("wishes").select("id,text,created_at").gte("created_at",since)
+    .order("created_at",{ascending:false}).limit(slots.length);
   clearTimeout(timer);
   if(error){mode="local";loadLocal();return;}
   mode="shared"; wishes=(data||[]).map(toWish); rebuildStrips();
@@ -592,17 +658,17 @@ async function connect(){
 setTimeout(connect,0);
 
 async function hangWish(text){
+  if(wishes.filter(w=>w.mine&&!w.burning&&alive(w)).length>=5) throw new Error("limit");
   if(mode!=="shared"){
-    if(wishes.filter(w=>w.mine).length>=5) throw new Error("limit");
     const ts=Date.now();
     wishes.push({text,ts,key:"l"+ts,mine:true,fresh:true}); saveLocal(); rebuildStrips(); return;
   }
-  if(mineIds.length>=5) throw new Error("limit");
   const {data,error}=await sb.from("wishes").insert({text,client_id:clientId}).select("id,text,created_at").single();
   if(error){ if(/limit/i.test(error.message||"")) throw new Error("limit"); throw error; }
-  mineIds.push(data.id); try{localStorage.setItem(MINE_KEY,JSON.stringify(mineIds));}catch(e){}
-  if(!wishes.some(w=>w.id===data.id)){const w=toWish(data); w.fresh=true; wishes.push(w); rebuildStrips();}
-  else { const w=wishes.find(w=>w.id===data.id); w.mine=true; renderList(); }
+  mineIds.push(data.id); try{localStorage.setItem(MINE_KEY,JSON.stringify(mineIds.slice(-50)));}catch(e){}
+  const have=wishes.find(w=>w.id===data.id);
+  if(have){ have.mine=true; renderList(); }
+  else { const w=toWish(data); w.fresh=true; wishes.push(w); rebuildStrips(); }
 }
 
 /* ---------- ritual UI ---------- */
@@ -761,6 +827,13 @@ function knock(){
   const f=ac.createBiquadFilter(); f.type="lowpass"; f.frequency.value=700+Math.random()*300;
   const g=ac.createGain(); g.gain.value=.5; s.connect(f).connect(g).connect(master); s.start(t);
 }
+function burnSound(){
+  if(!ac||ac.state!=="running") return;
+  const t=ac.currentTime, len=ac.sampleRate*2.6, b=ac.createBuffer(1,len,ac.sampleRate), d=b.getChannelData(0);
+  for(let i=0;i<len;i++) d[i]=(Math.random()<.004?(Math.random()*2-1):0)+(Math.random()*2-1)*.08*Math.sin(Math.PI*i/len);
+  const s=ac.createBufferSource(); s.buffer=b; const f=ac.createBiquadFilter(); f.type="highpass"; f.frequency.value=900;
+  const g=ac.createGain(); g.gain.value=.35; s.connect(f).connect(g).connect(master); s.start(t);
+}
 function whisper(){
   if(!ac||ac.state!=="running") return;
   const t=ac.currentTime;
@@ -846,6 +919,7 @@ function tick(){
   ghostStep.material.opacity=summoned?Math.min(.55,sinceSummon*.3)*(.8+.2*Math.sin(t*1.7)):0;
 
   // strips sway, fresh ones drop in
+  tickBurning(dt,t);
   stripGroup.children.forEach(g=>{const u=g.userData;
     g.rotation.z=reduce?0:Math.sin(t*1.4+u.phase)*.12;
     if(u.fresh>0){u.fresh=Math.max(0,u.fresh-dt*.8);g.scale.setScalar(1+u.fresh*.6);}
